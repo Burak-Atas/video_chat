@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Call</title>
+</head>
+<body>
+
+<video id="localVideo" autoplay muted></video>
+<div id="remoteVideos"></div>
+<form id="messageForm">
+    <input type="text" id="messageInput" placeholder="Type your message here...">
+    <button type="submit">Send</button>
+</form>
+
+<script>
+const localVideo = document.getElementById('localVideo');
+const remoteVideos = document.getElementById('remoteVideos');
+
+navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(stream => {
+        localVideo.srcObject = stream;
+
+        const peers = {};
+        const roomID = "exampleRoomID";
+        const userName = "exampleUserName";
+        const socket = new WebSocket(`ws://10.196.19.197:8080/ws/${roomID}/${userName}`);
+
+        socket.onmessage = function(event) {
+            const message = JSON.parse(event.data);
+
+            switch (message.type) {
+                case 'new_user':
+                    const newPeer = createPeer(true);
+                    peers[message.userName] = newPeer;
+                    break;
+                case 'offer':
+                    handleOffer(message);
+                    break;
+                case 'answer':
+                    handleAnswer(message);
+                    break;
+                case 'candidate':
+                    handleCandidate(message);
+                    break;
+                case 'chat':
+                    handleChat(message);
+                    break;
+                default:
+                    console.error('Unknown message type:', message.type);
+            }
+        };
+
+        socket.onopen = function() {
+            console.log('WebSocket connection opened');
+        };
+
+        socket.onclose = function() {
+            console.log('WebSocket connection closed');
+        };
+
+        function createPeer(isInitiator) {
+            const peer = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+
+            peer.onicecandidate = event => {
+                if (event.candidate) {
+                    socket.send(JSON.stringify({
+                        type: 'candidate',
+                        candidate: event.candidate,
+                        from: userName
+                    }));
+                }
+            };
+
+            peer.ontrack = event => {
+                const video = document.createElement('video');
+                video.srcObject = event.streams[0];
+                video.autoplay = true;
+                remoteVideos.appendChild(video);
+            };
+
+            stream.getTracks().forEach(track => peer.addTrack(track, stream));
+
+            if (isInitiator) {
+                peer.createOffer()
+                    .then(offer => peer.setLocalDescription(offer))
+                    .then(() => {
+                        socket.send(JSON.stringify({
+                            type: 'offer',
+                            sdp: peer.localDescription,
+                            from: userName
+                        }));
+                    });
+            }
+
+            return peer;
+        }
+
+        function handleOffer(message) {
+            const peer = createPeer(false);
+            peers[message.from] = peer;
+            peer.setRemoteDescription(new RTCSessionDescription(message.sdp))
+                .then(() => peer.createAnswer())
+                .then(answer => peer.setLocalDescription(answer))
+                .then(() => {
+                    socket.send(JSON.stringify({
+                        type: 'answer',
+                        sdp: peer.localDescription,
+                        from: userName
+                    }));
+                });
+        }
+
+        function handleAnswer(message) {
+            peers[message.from].setRemoteDescription(new RTCSessionDescription(message.sdp));
+        }
+
+        function handleCandidate(message) {
+            peers[message.from].addIceCandidate(new RTCIceCandidate(message.candidate));
+        }
+
+        function handleChat(message) {
+            const chatMessage = document.createElement('div');
+            chatMessage.textContent = `${message.from}: ${message.text}`;
+            document.body.appendChild(chatMessage);
+        }
+
+        document.getElementById('messageForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const messageInput = document.getElementById('messageInput');
+            const messageText = messageInput.value.trim();
+            if (messageText !== '') {
+                socket.send(JSON.stringify({
+                    type: 'chat',
+                    text: messageText,
+                    from: userName
+                }));
+                messageInput.value = '';
+            }
+        });
+    })
+    .catch(error => console.error('Error accessing media devices.', error));
+
+</script>
+
+</body>
+</html>

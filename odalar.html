@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const i = document.getElementById("oda");
+            fetch('http://localhost:8080/room')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.text();  // veya response.json() eğer JSON ise
+                })
+                .then(data => {
+                    i.innerHTML = data.oda;  // veya i.innerText, veri tipine bağlı olarak
+                    console.log(data);
+                })
+                .catch(error => {
+                    console.error('There has been a problem with your fetch operation:', error);
+                });
+        });
+    </script>
+</head>
+<body>
+
+    <div id='oda'>
+    </div>
+    <a href="deneme.html">deneme</a>
+
+    
+</body>
+</html>
